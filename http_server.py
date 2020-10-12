@@ -6,13 +6,48 @@ import mimetypes
 
 class HttpServer():
 
-    def __init__(self, port):
-        self.port = port
-
-    def get_path(self, request):
+    @staticmethod
+    def make_response(
+        code,
+        reason,
+        body=b"",
+        mimetype=b"text/plain"
+    ):
         """
-        takes the request, and returns just
-        the path
+        returns a basic HTTP response
+        Ex:
+            make_response(
+                b"200",
+                b"OK",
+                b"<html><h1>Welcome:</h1></html>",
+                b"text/html"
+            ) ->
+            b'''
+            HTTP/1.1 200 OK\r\n
+            Content-Type: text/html\r\n
+            \r\n
+            <html><h1>Welcome:</h1></html>\r\n
+            '''
+        """
+        return b"\r\n".join([
+            b"HTTP/1.1 " + code + b" " + reason,
+            b"Content-Type: " + mimetype,
+            b"",
+            body
+        ])
+
+
+    @staticmethod
+    def get_path(request):
+        """
+        Given the content of an HTTP request, return the _path_
+        of that request.
+        For example, if request were:
+        '''
+        GET /images/sample_1.png HTTP/1.1
+        Host: localhost:1000
+        '''
+        Then you would return "/images/sample_1.png"
         """
         content = request.split(" ")
         path = " "
@@ -23,69 +58,90 @@ class HttpServer():
                 break
         return path.strip()
 
-    def get_content(self, path):
+    @staticmethod
+    def get_mimetype(path):
         """
-        takes the path and returns content of the
-        file if the path representa a file, or 
-        it returns a list of files inside the directory
-        if the path represents a directory
+        This method should return a suitable mimetype for the given `path`.
+        A mimetype is a short bytestring that tells a browser how to
+        interpret the response body. For example, if the response body
+        contains a web page then the mimetype should be b"text/html". If
+        the response body contains a JPG image, then the mimetype would
+        be b"image/jpeg".
+        Here are a few concrete examples:
+            get_mimetype('/a_web_page.html') -> b"text/html"
+            get_mimetype('/images/sample_1.png') -> b"image/png"
+            get_mimetype('/') -> b"text/plain"
+            # A directory listing should have either a plain text mimetype
+            # or a b"text/html" mimetype if you turn your directory listings
+            # into web pages.
+            get_mimetype('/a_page_that_doesnt_exist.html') -> b"text/html"
+            # This function should return an appropriate mimetype event
+            # for files that don't exist.
         """
-        content = ""
 
-        file_path = path.split("/")
-        filename = ''.join(file_path[-1:])
-        # print(f"\nFile name: {filename}")
+        if path.endswith('/'):
+            return b"text/plain"
+        else:
+            mime = mimetypes.MimeTypes()
+            mime_type, _ = mime.guess_type(path)
+            return mime_type.encode()
 
-        if os.path.isfile(filename):
-            print(f"\nIt is a file.")
-            with open(filename, 'rb') as f:
-                reader = f.read(1024)
-                content += reader
-        elif os.path.isdir(filename):
-            print(f"\nIt is a director.")
-            content = os.listdir(filename)
+    @staticmethod
+    def get_content(path):
+        """
+        This method should return the content of the file/directory
+        indicated by `path`. For example, if path is `/a_web_page.html`
+        then this function would return the contents of the file
+        `webroot/a_web_page.html` as a byte string.
+          * If the requested path is a directory, then the content should
+          be a plain-text listing of the contents of that directory.
+          * If the path is a file, it should return the contents of that
+            file.
+          * If the indicated path doesn't exist inside of `webroot`, then
+            raise a FileNotFoundError.
+        Here are some concrete examples:
+        Ex:
+            get_content('/a_web_page.html') -> b"<html><h1>North Carolina..."
+            # Returns the contents of `webroot/a_web_page.html`
+            get_content('/images/sample_1.png') -> b"A12BCF..."
+            # Returns the contents of `webroot/images/sample_1.png`
+            get_content('/') -> images/, a_web_page.html, make_type.py,..."
+            # Returns a directory listing of `webroot/`
+            get_content('/a_page_that_doesnt_exist.html') 
+            # The file `webroot/a_page_that_doesnt_exist.html`) doesn't exist,
+            # so this should raise a FileNotFoundError.
+        """
+        content = b""
+        try:
+            filename = "./webroot"
+            if path == "/":
+                filename = filename
+            else:
+                filename += path
+
+            total = b""
+
+            if os.path.isfile(filename):
+                with open(filename, 'rb') as f:
+                    reader = f.read()
+                    total += reader
+                content = total
+            elif os.path.isdir(filename):
+                total = os.listdir(filename)
+                result = [item.encode() for item in total]
+                content = b"\n".join(result)
+            else:
+                raise FileNotFoundError
+        except FileNotFoundError:
+            raise FileNotFoundError
 
         return content
 
-    def get_mimetype(self, path):
-        """
-        This tells the browser what type the content is.
-        It would tell the browser that this is image if the 
-        content is an image, the browser then renders the 
-        contents of the response as an image, 
-        or this is a web page if the
-        content is a html type, the browser then renders the
-        content as a web page.
-        The mime-type needs to figure out what type the 
-        content is based on the path we give it
-        """
-        mime = mimetypes.MimeTypes()
-        mime_type, _ = mime.guess_type(path)
-        return mime_type
 
+    def __init__(self, port):
+        self.port = port
 
-    def make_response(self, res_code, res_description, res_body, res_mime):
-        """
-        It takes, the response-code, response-description, response-body
-        and response-mimetype and builds appropriate reponse out of the 
-        parameters
-        """
-        response = "HTTP/1.1 {} {}\r\n".format(res_code, res_description)
-        response += "Content-Type: {}".format(res_mime)
-        response += "\r\n"
-        response += "{}".format(res_body)
-        
-        return response
-    
     def serve(self):
-        """
-        This method has the basic structure of TCP server.
-        When this method is called, it starts an infinit
-        loop of accepting and then closing connections.
-        It accepts connection, does something with the 
-        response accepted from the connection, and then
-        closes the connetion.
-        """
         address = ('0.0.0.0', port)
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -104,41 +160,35 @@ class HttpServer():
                 try:
                     print('connection - {0}:{1}'.format(*addr))
 
-                    # byte_size = 1024
                     request = ''
-                    
                     while True:
                         data = conn.recv(1024)
-                        request += data.decode()
+                        request += data.decode('utf8')
 
                         if '\r\n\r\n' in request:
                             break
+                    
+                    print("Request received:\n{}\n\n".format(request))
 
                     path = self.get_path(request)
-
+                    
                     try:
                         body = self.get_content(path)
                         mimetype = self.get_mimetype(path)
 
                         response = self.make_response(
-                            b"200",
-                            b"OK",
-                            body,
-                            mimetype
+                            b"200", b"OK", body, mimetype
                         )
+
                     except FileNotFoundError:
-                        body = b"Count't find the file you requested"
+                        body = b"Couldn't find the file you requested."
                         mimetype = b"text/plain"
 
                         response = self.make_response(
-                            b"404",
-                            b"NOT FOUND",
-                            body,
-                            mimetype
+                            b"404", b"NOT FOUND", body, mimetype
                         )
 
-                    conn.sendall(response.encode("utf8"))
-
+                    conn.sendall(response)
                 except:
                     traceback.print_exc()
                 finally:
@@ -159,4 +209,3 @@ if __name__ == '__main__':
 
     server = HttpServer(port)
     server.serve()
-
