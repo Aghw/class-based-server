@@ -123,8 +123,8 @@ class HttpServer():
 
             if os.path.isfile(filename):
                 with open(filename, 'rb') as f:
-                    reader = f.read()
-                    total += reader
+                    while (reader := f.read()):
+                        total += reader
                 content = total
             elif os.path.isdir(filename):
                 total = os.listdir(filename)
